@@ -449,14 +449,31 @@ apply_install() {
 }
 
 apply_removals() {
-  local -a manifest=("$@")
-  local changes=0
+  # Arguments: desired_domain... -- manifest_domain...
+  # The "--" separator distinguishes the two arrays.
+  local -a desired=()
+  local -a manifest=()
+  local in_manifest=false
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == "--" ]]; then
+      in_manifest=true
+      continue
+    fi
+    if [[ $in_manifest == false ]]; then
+      desired+=("$arg")
+    else
+      manifest+=("$arg")
+    fi
+  done
 
+  local changes=0
   local domain
   for domain in "${manifest[@]}"; do
+    [[ -z "$domain" ]] && continue
     local keep=false
     local d
-    for d in "${DESIRED_DOMAINS[@]}"; do
+    for d in "${desired[@]}"; do
       [[ "$d" == "$domain" ]] && keep=true && break
     done
 
@@ -554,7 +571,6 @@ main() {
   check_resolver_dir
 
   mapfile -t DESIRED_DOMAINS < <(get_desired_mirrors)
-  export DESIRED_DOMAINS
 
   if [[ ${#DESIRED_DOMAINS[@]} -eq 0 ]]; then
     fatal "Mirror list is empty. Cannot continue."
@@ -570,7 +586,7 @@ main() {
 
   local install_changes removal_changes total_changes
   install_changes="$(apply_install "${DESIRED_DOMAINS[@]}")"
-  removal_changes="$(apply_removals "${MANIFEST_DOMAINS[@]:-}")"
+  removal_changes="$(apply_removals "${DESIRED_DOMAINS[@]}" -- "${MANIFEST_DOMAINS[@]:-}")"
   total_changes=$((install_changes + removal_changes))
 
   if [[ $DRY_RUN == false ]]; then
