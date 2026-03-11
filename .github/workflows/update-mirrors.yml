@@ -73,6 +73,16 @@ jobs:
             diff <(echo "$CURRENT_SORTED") <(echo "$NEW_SORTED") \
               | grep '^[<>]' | sed 's/^< /  removed: /; s/^> /  added:   /' || true
 
+            # Save the diff before overwriting mirrors.txt — the Create pull request
+            # step runs in a separate shell and mirrors.txt will already be updated by then.
+            DIFF_SUMMARY="$(diff \
+              <(echo "$CURRENT_SORTED") \
+              <(echo "$NEW_SORTED") \
+              | grep '^[<>]' | sed 's/^< /- removed: /; s/^> /+ added: /' || echo 'See diff')"
+            echo "diff_summary<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$DIFF_SUMMARY" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+
             # Write updated mirrors.txt
             {
               echo "# archive-resolver mirror list"
@@ -100,11 +110,7 @@ jobs:
           git commit -m "chore: update mirror list from Wikipedia (${DATE})"
           git push origin "$BRANCH"
 
-          DIFF_SUMMARY="$(diff \
-            <(grep -E '^[^#[:space:]]' mirrors.txt | sort) \
-            <(cat /tmp/ordered_domains.txt | sort) \
-            | grep '^[<>]' | sed 's/^< /- removed: /; s/^> /+ added: /' || echo 'See diff')"
-
+          DIFF_SUMMARY="${{ steps.check.outputs.diff_summary }}"
           WIKI_URL="https://en.wikipedia.org/wiki/Archive.today"
           gh pr create \
             --title "chore: update mirror list from Wikipedia (${DATE})" \
