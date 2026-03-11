@@ -20,7 +20,7 @@ set -euo pipefail
 # Constants
 # ---------------------------------------------------------------------------
 readonly SCRIPT_NAME="archive-resolver"
-readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_VERSION="0.1.0"
 readonly RESOLVER_DIR="/etc/resolver"
 readonly MANIFEST_FILE="${RESOLVER_DIR}/.${SCRIPT_NAME}"
 readonly MANAGED_MARKER="managed-by: ${SCRIPT_NAME}"
