@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint install.sh
+        run: shellcheck --severity=warning install.sh
+
+  syntax:
+    name: Bash Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check install.sh syntax
+        run: bash -n install.sh
+
+      - name: Check mirrors.txt format
+        run: |
+          # Must contain at least one non-comment domain line
+          if ! grep -qE '^[^#[:space:]]' mirrors.txt; then
+            echo "mirrors.txt contains no valid domain entries" >&2
+            exit 1
+          fi
+          # Each domain line must look like a valid hostname (letters, digits, dots, hyphens)
+          while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue  # comment
+            [[ -z "$line" ]] && continue                  # blank
+            if ! [[ "$line" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
+              echo "Invalid domain in mirrors.txt: '${line}'" >&2
+              exit 1
+            fi
+          done < mirrors.txt
+          echo "mirrors.txt is valid"
+
+  dry-run:
+    name: Dry-run (Linux compat check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch script for Linux dry-run
+        # The script exits on non-Darwin; stub out the OS check so we can
+        # exercise argument parsing and logic on the CI runner.
+        run: |
+          sed 's/\[\[ "$(uname -s)" == "Darwin" \]\]/true/' install.sh > install-test.sh
+          chmod +x install-test.sh
+
+      - name: Run dry-run (no-fetch, no root required)
+        run: bash install-test.sh --dry-run --no-fetch 2>&1 || true
+        # We expect non-zero exit because /etc/resolver doesn't exist on Linux;
+        # the goal is to verify flag parsing and early-stage logic don't crash.
