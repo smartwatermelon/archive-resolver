@@ -1,1 +1,3 @@
 .claude/
+*.tar.gz
+install-test.sh

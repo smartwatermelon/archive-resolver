@@ -1,0 +1,13 @@
+# archive-resolver mirror list
+# Format: one domain per line. Lines starting with # are comments.
+# The first non-comment line is the primary domain (others become symlinks).
+#
+# Source: https://en.wikipedia.org/wiki/Archive.today
+# Updated: 2026-03-11T17:37:00Z
+archive.today
+archive.fo
+archive.is
+archive.li
+archive.md
+archive.ph
+archive.vn

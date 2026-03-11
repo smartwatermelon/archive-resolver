@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag format
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '${TAG}' does not match vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+
+      - name: Verify script version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          SCRIPT_VERSION="$(grep -oP "(?<=SCRIPT_VERSION=\")[^\"]+" install.sh)"
+          if [[ "$TAG_VERSION" != "$SCRIPT_VERSION" ]]; then
+            echo "Tag version (${TAG_VERSION}) does not match SCRIPT_VERSION in install.sh (${SCRIPT_VERSION})" >&2
+            exit 1
+          fi
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint before release
+        run: shellcheck --severity=warning install.sh
+
+      - name: Validate mirrors.txt
+        run: |
+          if ! grep -qE '^[^#[:space:]]' mirrors.txt; then
+            echo "mirrors.txt contains no valid domain entries" >&2
+            exit 1
+          fi
+
+      - name: Create release archive
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          ARCHIVE="archive-resolver-${VERSION}.tar.gz"
+          tar -czf "$ARCHIVE" \
+            install.sh \
+            mirrors.txt \
+            README.md \
+            LICENSE.md
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DATE="$(date -u '+%Y-%m-%d')"
+          MIRROR_COUNT="$(grep -cE '^[^#[:space:]]' mirrors.txt)"
+
+          cat > release_notes.md <<EOF
+          ## ${VERSION} — ${DATE}
+
+          ### What's included
+
+          - \`install.sh\` — idempotent macOS DNS override installer
+          - \`mirrors.txt\` — ${MIRROR_COUNT} archive.today mirror domains
+
+          ### Install
+
+          \`\`\`sh
+          RELEASE_URL="https://github.com/${{ github.repository }}"
+          curl -fsSL "${RELEASE_URL}/releases/download/${VERSION}/archive-resolver-${VERSION}.tar.gz" \\
+            | tar -xz
+          sudo ./install.sh
+          \`\`\`
+
+          Or run directly from \`main\` (always uses latest mirror list):
+
+          \`\`\`sh
+          git clone https://github.com/${{ github.repository }}.git
+          cd archive-resolver
+          sudo ./install.sh
+          \`\`\`
+
+          ### Mirrors in this release
+
+          $(grep -E '^[^#[:space:]]' mirrors.txt | sed 's/^/- /')
+          EOF
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "archive-resolver $GITHUB_REF_NAME" \
+            --notes-file release_notes.md \
+            "$ARCHIVE" \
+            install.sh \
+            mirrors.txt
