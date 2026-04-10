@@ -48,7 +48,7 @@ sudo ./install.sh --uninstall
 
 ## CI workflows
 
-- **ci.yml**: ShellCheck, bash syntax, mirrors.txt format validation, Linux dry-run (stubs out Darwin check)
+- **ci.yml**: bash syntax, mirrors.txt format validation, Linux dry-run (stubs out Darwin check). ShellCheck is **not** in CI — it runs locally via the global `shell-lint-fix` pre-commit hook (`~/.config/pre-commit/config.yaml`), so every authorized commit is already linted before push.
 - **release.yml**: Validates tag matches `SCRIPT_VERSION`, lints, publishes release
 - **update-mirrors.yml**: Monthly Wikipedia scrape, opens PR if mirror set changed
 
