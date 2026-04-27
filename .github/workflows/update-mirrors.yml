@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+
+env:
+  ANOMALY_LABEL: mirror-source-anomaly
 
 jobs:
   update-mirrors:
@@ -27,12 +31,21 @@ jobs:
         run: |
           WIKIPEDIA_API="https://en.wikipedia.org/w/api.php?action=parse&page=Archive.today&prop=text&format=json"
 
-          echo "Fetching Wikipedia article..."
-          curl --silent --fail --max-time 30 --location "$WIKIPEDIA_API" -o /tmp/wiki.json
+          # Fetch and parse are wrapped in `if !` so a network or JSON-shape
+          # failure produces a structured anomaly rather than crashing the step.
+          ANOMALY_REASON=""
 
-          # Extract <li>archive.TLD</li> entries from the infobox HTML.
-          # Writing to a temp file avoids any shell-quoting issues with the JSON.
-          python3 - /tmp/wiki.json <<'PYEOF' > /tmp/new_domains.txt
+          echo "Fetching Wikipedia article..."
+          if ! curl --silent --fail --max-time 30 --location "$WIKIPEDIA_API" -o /tmp/wiki.json; then
+            ANOMALY_REASON="Failed to fetch Wikipedia API (network or HTTP error)."
+          fi
+
+          # Always create the output file so downstream `mapfile` is safe.
+          : > /tmp/new_domains.txt
+
+          if [[ -z "$ANOMALY_REASON" ]]; then
+            # Extract <li>archive.TLD</li> entries from the infobox HTML.
+            if ! python3 - /tmp/wiki.json > /tmp/new_domains.txt <<'PYEOF'
           import sys, json, re
 
           with open(sys.argv[1]) as f:
@@ -45,23 +58,86 @@ jobs:
                   seen.add(d)
                   print(d)
           PYEOF
-
-          if [[ ! -s /tmp/new_domains.txt ]]; then
-            echo "ERROR: No domains extracted from Wikipedia article" >&2
-            exit 1
+            then
+              ANOMALY_REASON="Failed to parse Wikipedia API response (unexpected JSON shape?)."
+            fi
           fi
 
-          # Ensure archive.today is first; preserve Wikipedia article ordering for the rest.
+          # Read current list and extracted set for sanity comparisons.
+          # Strip leading and trailing whitespace; the result feeds `grep -qx`,
+          # which would otherwise be sensitive to stray whitespace.
+          mapfile -t CURRENT < <(
+            grep -E '^[^#[:space:]]' mirrors.txt | awk '{$1=$1; print}'
+          )
+          mapfile -t EXTRACTED < /tmp/new_domains.txt
+
+          echo "Current mirrors.txt domains (${#CURRENT[@]}):"
+          if [[ ${#CURRENT[@]} -gt 0 ]]; then
+            printf '  %s\n' "${CURRENT[@]}"
+          fi
+          echo "Extracted from Wikipedia (${#EXTRACTED[@]}):"
+          if [[ ${#EXTRACTED[@]} -gt 0 ]]; then
+            printf '  %s\n' "${EXTRACTED[@]}"
+          else
+            echo "  (none)"
+          fi
+          echo
+
+          # Sanity checks (skipped if fetch/parse already failed above):
+          # 1) Non-empty result.
+          # 2) Result includes the primary domain (archive.today).
+          # 3) At most one currently-listed mirror is absent from the extraction.
+          # Operating principle: update if confident, never degrade.
+          if [[ -z "$ANOMALY_REASON" ]]; then
+            if [[ ${#EXTRACTED[@]} -eq 0 ]]; then
+              ANOMALY_REASON="Extraction returned zero domains (Wikipedia infobox parse yielded no matches)."
+            elif ! printf '%s\n' "${EXTRACTED[@]}" | grep -qx 'archive.today'; then
+              ANOMALY_REASON="Extraction is missing the primary domain (archive.today)."
+            else
+              MISSING_LIST=""
+              MISSING_COUNT=0
+              for d in "${CURRENT[@]}"; do
+                if ! printf '%s\n' "${EXTRACTED[@]}" | grep -qx "$d"; then
+                  MISSING_LIST="${MISSING_LIST:+${MISSING_LIST}, }${d}"
+                  MISSING_COUNT=$((MISSING_COUNT + 1))
+                fi
+              done
+              if [[ $MISSING_COUNT -gt 1 ]]; then
+                ANOMALY_REASON="Extraction is missing ${MISSING_COUNT} currently-listed mirrors"
+                ANOMALY_REASON+=" (${MISSING_LIST}); maximum allowed drop per run is 1."
+              fi
+            fi
+          fi
+
+          if [[ -n "$ANOMALY_REASON" ]]; then
+            echo "ANOMALY: $ANOMALY_REASON"
+            echo "mirrors.txt will not be modified."
+            echo "status=anomaly" >> "$GITHUB_OUTPUT"
+            {
+              echo "anomaly_reason<<EOF"
+              echo "$ANOMALY_REASON"
+              echo "EOF"
+              echo "extracted_summary<<EOF"
+              if [[ ${#EXTRACTED[@]} -eq 0 ]]; then
+                echo "(none)"
+              else
+                printf '%s\n' "${EXTRACTED[@]}"
+              fi
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Healthy. Ensure archive.today is first; preserve Wikipedia article ordering for the rest.
           {
             echo "archive.today"
             grep -v '^archive\.today$' /tmp/new_domains.txt
           } > /tmp/ordered_domains.txt
 
-          echo "Domains found on Wikipedia:"
-          cat /tmp/ordered_domains.txt
+          echo "status=healthy" >> "$GITHUB_OUTPUT"
 
           # Compare sorted sets (order differences don't constitute an update).
-          CURRENT_SORTED="$(grep -E '^[^#[:space:]]' mirrors.txt | sed 's/[[:space:]]*//' | sort)"
+          CURRENT_SORTED="$(printf '%s\n' "${CURRENT[@]}" | sort)"
           NEW_SORTED="$(sort /tmp/ordered_domains.txt)"
 
           if [[ "$CURRENT_SORTED" == "$NEW_SORTED" ]]; then
@@ -95,8 +171,105 @@ jobs:
             } > mirrors.txt
           fi
 
+      - name: Open or update anomaly issue
+        if: steps.check.outputs.status == 'anomaly' && inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANOMALY_REASON: ${{ steps.check.outputs.anomaly_reason }}
+          EXTRACTED_SUMMARY: ${{ steps.check.outputs.extracted_summary }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Ensure the anomaly label exists (idempotent). --force re-asserts the
+          # workflow as the source of truth for the label's color and description.
+          gh label create "$ANOMALY_LABEL" \
+            --description "Wikipedia source returned anomalous data; mirrors.txt left untouched." \
+            --color BFD4F2 \
+            --force
+
+          EXISTING="$(gh issue list \
+            --state open \
+            --label "$ANOMALY_LABEL" \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          WIKI_URL="https://en.wikipedia.org/wiki/Archive.today"
+          SPEC_PATH="docs/superpowers/specs/2026-04-27-update-mirrors-resilience-design.md"
+          cat > /tmp/issue_body.md <<EOF
+          The monthly mirror-update workflow detected an anomaly in the Wikipedia source.
+          \`mirrors.txt\` was **not** modified.
+
+          **Failed sanity check:**
+
+          \`\`\`
+          ${ANOMALY_REASON}
+          \`\`\`
+
+          **Domains extracted from Wikipedia this run:**
+
+          \`\`\`
+          ${EXTRACTED_SUMMARY}
+          \`\`\`
+
+          **Workflow run:** ${RUN_URL}
+
+          **Operator checklist:**
+
+          - [ ] Inspect the [Archive.today Wikipedia article](${WIKI_URL}) —
+                has the infobox mirror list been removed or changed?
+          - [ ] Decide whether to update \`mirrors.txt\` manually.
+          - [ ] Consider alternative sources (see \`${SPEC_PATH}\`).
+
+          This issue auto-closes when the workflow next sees a healthy extraction.
+          EOF
+
+          if [[ -z "$EXISTING" ]]; then
+            gh issue create \
+              --title "Mirror update workflow: source anomaly detected" \
+              --label "$ANOMALY_LABEL" \
+              --body-file /tmp/issue_body.md
+          else
+            # Skip commenting if the most recent communication on the issue
+            # already records this same anomaly reason. Avoids unbounded
+            # comment noise when the upstream source stays broken for months.
+            LATEST_BODY="$(
+              gh issue view "$EXISTING" \
+                --json body,comments \
+                --jq '[.body] + (.comments | map(.body)) | last'
+            )"
+            if [[ "$LATEST_BODY" == *"$ANOMALY_REASON"* ]]; then
+              echo "Issue #${EXISTING} already records this anomaly — skipping comment."
+            else
+              echo "Existing anomaly issue #${EXISTING} found — appending comment."
+              gh issue comment "$EXISTING" --body-file /tmp/issue_body.md
+            fi
+          fi
+
+      - name: Close recovered anomaly issues
+        if: steps.check.outputs.status == 'healthy' && inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          OPEN_NUMS="$(gh issue list \
+            --state open \
+            --label "$ANOMALY_LABEL" \
+            --json number \
+            --jq '.[].number')"
+          if [[ -z "$OPEN_NUMS" ]]; then
+            exit 0
+          fi
+          while IFS= read -r n; do
+            [[ -z "$n" ]] && continue
+            echo "Closing recovered anomaly issue #${n}."
+            gh issue comment "$n" --body "Source recovered on run ${RUN_URL} — closing automatically."
+            gh issue close "$n"
+          done <<< "$OPEN_NUMS"
+
       - name: Create pull request
-        if: steps.check.outputs.up_to_date == 'false' && inputs.dry_run != 'true'
+        if: >-
+          steps.check.outputs.status == 'healthy' &&
+          steps.check.outputs.up_to_date == 'false' &&
+          inputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -133,10 +306,18 @@ jobs:
       - name: Dry run summary
         if: inputs.dry_run == 'true'
         run: |
-          if [[ "${{ steps.check.outputs.up_to_date }}" == "true" ]]; then
-            echo "Dry run: mirrors.txt is already up to date."
-          else
-            echo "Dry run: changes detected. A PR would be created if dry_run=false."
-            echo "Updated mirror list:"
-            cat /tmp/ordered_domains.txt
-          fi
+          case "${{ steps.check.outputs.status }}" in
+            anomaly)
+              echo "Dry run: anomaly detected. Would open or comment on the '${ANOMALY_LABEL}' issue."
+              echo "Reason: ${{ steps.check.outputs.anomaly_reason }}"
+              ;;
+            healthy)
+              if [[ "${{ steps.check.outputs.up_to_date }}" == "true" ]]; then
+                echo "Dry run: mirrors.txt is already up to date."
+              else
+                echo "Dry run: changes detected. A PR would be created if dry_run=false."
+                echo "Updated mirror list:"
+                cat /tmp/ordered_domains.txt
+              fi
+              ;;
+          esac
