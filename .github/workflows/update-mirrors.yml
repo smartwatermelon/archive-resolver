@@ -64,7 +64,7 @@ jobs:
           fi
 
           # Read current list and extracted set for sanity comparisons.
-          # Strip leading and trailing whitespace; the result feeds `grep -qx`,
+          # Strip leading and trailing whitespace; the result feeds `grep -Fxq`,
           # which would otherwise be sensitive to stray whitespace.
           mapfile -t CURRENT < <(
             grep -E '^[^#[:space:]]' mirrors.txt | awk '{$1=$1; print}'
@@ -91,13 +91,13 @@ jobs:
           if [[ -z "$ANOMALY_REASON" ]]; then
             if [[ ${#EXTRACTED[@]} -eq 0 ]]; then
               ANOMALY_REASON="Extraction returned zero domains (Wikipedia infobox parse yielded no matches)."
-            elif ! printf '%s\n' "${EXTRACTED[@]}" | grep -qx 'archive.today'; then
+            elif ! printf '%s\n' "${EXTRACTED[@]}" | grep -Fxq 'archive.today'; then
               ANOMALY_REASON="Extraction is missing the primary domain (archive.today)."
             else
               MISSING_LIST=""
               MISSING_COUNT=0
               for d in "${CURRENT[@]}"; do
-                if ! printf '%s\n' "${EXTRACTED[@]}" | grep -qx "$d"; then
+                if ! printf '%s\n' "${EXTRACTED[@]}" | grep -Fxq "$d"; then
                   MISSING_LIST="${MISSING_LIST:+${MISSING_LIST}, }${d}"
                   MISSING_COUNT=$((MISSING_COUNT + 1))
                 fi
