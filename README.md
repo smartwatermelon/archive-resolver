@@ -27,6 +27,9 @@ The mirror list is in [`mirrors.txt`](./mirrors.txt), updated monthly by a GitHu
 ## Requirements
 
 - macOS 10.6+ (any version with `/etc/resolver` support)
+- Bash 4.0 or newer, on your `PATH`. macOS ships Bash 3.2 at `/bin/bash`, which
+  lacks the `mapfile` builtin this script relies on. Install a current Bash with
+  `brew install bash`.
 - `sudo` / root access (for install/uninstall only)
 - `curl` and `python3` (both ship with macOS)
 
@@ -61,8 +64,8 @@ Options:
 # Standard install / update (fetches latest mirrors.txt from GitHub)
 sudo ./install.sh
 
-# Preview what would change
-sudo ./install.sh --dry-run
+# Preview what would change (no root needed; --dry-run skips the root check)
+./install.sh --dry-run
 
 # Update mirrors.txt from Wikipedia, then install
 ./install.sh --update-mirrors && sudo ./install.sh --no-fetch
