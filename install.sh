@@ -11,10 +11,28 @@
 # The script is idempotent: re-running it adds missing entries, updates changed
 # entries, and removes entries for domains no longer in the mirrors list.
 #
-# Requires: macOS, curl (for network operations), python3 (bundled on macOS)
+# Requires: macOS, Bash 4.0+ (stock macOS /bin/bash is 3.2 — see guard below),
+#           curl (for network operations), python3 (bundled on macOS)
 # Root is required only for install/uninstall, not for --update-mirrors.
 
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Bash version guard — must run before any side effects.
+# This script uses `mapfile`, a Bash 4.0+ builtin. macOS ships Bash 3.2.57 at
+# /bin/bash, so without this guard a stock-macOS run fails mid-execution with a
+# cryptic "mapfile: command not found" after filesystem changes have started.
+# `error()`/`fatal()` are defined further down, so emit plainly here.
+# ---------------------------------------------------------------------------
+if [[ -z "${BASH_VERSINFO[0]:-}" || "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "[error] archive-resolver requires Bash 4.0 or newer (found: ${BASH_VERSION:-unknown})." >&2
+  echo "[error] macOS ships Bash 3.2 at /bin/bash, which lacks the 'mapfile' builtin this script uses." >&2
+  echo "[error] Remedy: install a newer Bash and run the script with it, e.g." >&2
+  echo "[error]   brew install bash" >&2
+  echo "[error]   /opt/homebrew/bin/bash ./install.sh    # Apple silicon" >&2
+  echo "[error]   /usr/local/bin/bash ./install.sh       # Intel" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Constants
