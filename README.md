@@ -15,7 +15,7 @@ macOS supports per-domain DNS resolver overrides via files in `/etc/resolver/`. 
 The mirror list is in [`mirrors.txt`](./mirrors.txt), updated monthly by a GitHub Actions workflow that reads the [Archive.today Wikipedia article](https://en.wikipedia.org/wiki/Archive.today). Current mirrors:
 
 | Domain | Role |
-|---|---|
+| --- | --- |
 | archive.today | Primary |
 | archive.fo | Mirror |
 | archive.is | Mirror (deprecated for new links, still active) |
@@ -83,7 +83,7 @@ sudo ./install.sh --uninstall
 ## How it works
 
 1. Reads `mirrors.txt` from this repository (or the local copy with `--no-fetch`).
-2. Writes `/etc/resolver/archive.today` with `nameserver 8.8.8.8`.
+2. Writes `/etc/resolver/archive.today` with the configured nameserver (`8.8.8.8` unless overridden with `--nameserver`).
 3. Creates symlinks for every other mirror domain pointing at that file. Changing the nameserver only requires updating one place.
 4. Removes any `/etc/resolver` entries from a previous run that are no longer in the mirror list, using a manifest at `/etc/resolver/.archive-resolver`.
 5. Runs `dscacheutil -flushcache` and reloads `mDNSResponder`.
