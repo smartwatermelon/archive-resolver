@@ -16,7 +16,7 @@ shellcheck --severity=warning install.sh
 bash -n install.sh
 
 # Dry-run (requires macOS; no root needed)
-sudo ./install.sh --dry-run --no-fetch
+./install.sh --dry-run --no-fetch
 
 # Update mirrors from Wikipedia (no root)
 ./install.sh --update-mirrors --dry-run
