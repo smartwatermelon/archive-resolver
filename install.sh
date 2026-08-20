@@ -121,7 +121,7 @@ Examples:
   sudo ./install.sh --no-fetch         # Install using bundled mirrors.txt (offline)
   sudo ./install.sh --nameserver 8.8.4.4   # Use alternate Google DNS
   sudo ./install.sh --uninstall        # Remove everything
-  sudo ./install.sh --dry-run          # Preview resolver changes
+  ./install.sh --dry-run               # Preview resolver changes (no root needed)
 
 Workflow for updating the mirror list and re-installing in one shot:
   ./install.sh --update-mirrors && sudo ./install.sh --no-fetch
