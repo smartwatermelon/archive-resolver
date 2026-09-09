@@ -24,7 +24,12 @@ jobs:
     name: Check Wikipedia for mirror changes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # This job's "Create pull request" step pushes a commit with
+      # `git push origin "$BRANCH"`, which authenticates using the
+      # credential this checkout persists — GH_TOKEN below is set only for
+      # the `gh` CLI calls, not for git itself. persist-credentials: false
+      # would break the push, so the token is deliberately kept.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked] git push in "Create pull request" step relies on this checkout's persisted credential
 
       - name: Fetch and parse mirror list from Wikipedia
         id: check
@@ -272,6 +277,7 @@ jobs:
           inputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          DIFF_SUMMARY: ${{ steps.check.outputs.diff_summary }}
         run: |
           DATE="$(date -u '+%Y-%m-%d')"
           BRANCH="chore/update-mirrors-${DATE}"
@@ -283,7 +289,6 @@ jobs:
           git commit -m "chore: update mirror list from Wikipedia (${DATE})"
           git push origin "$BRANCH"
 
-          DIFF_SUMMARY="${{ steps.check.outputs.diff_summary }}"
           WIKI_URL="https://en.wikipedia.org/wiki/Archive.today"
           gh pr create \
             --title "chore: update mirror list from Wikipedia (${DATE})" \
@@ -305,14 +310,18 @@ jobs:
 
       - name: Dry run summary
         if: inputs.dry_run == 'true'
+        env:
+          CHECK_STATUS: ${{ steps.check.outputs.status }}
+          ANOMALY_REASON: ${{ steps.check.outputs.anomaly_reason }}
+          UP_TO_DATE: ${{ steps.check.outputs.up_to_date }}
         run: |
-          case "${{ steps.check.outputs.status }}" in
+          case "$CHECK_STATUS" in
             anomaly)
               echo "Dry run: anomaly detected. Would open or comment on the '${ANOMALY_LABEL}' issue."
-              echo "Reason: ${{ steps.check.outputs.anomaly_reason }}"
+              echo "Reason: ${ANOMALY_REASON}"
               ;;
             healthy)
-              if [[ "${{ steps.check.outputs.up_to_date }}" == "true" ]]; then
+              if [[ "$UP_TO_DATE" == "true" ]]; then
                 echo "Dry run: mirrors.txt is already up to date."
               else
                 echo "Dry run: changes detected. A PR would be created if dry_run=false."

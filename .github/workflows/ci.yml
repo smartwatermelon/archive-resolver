@@ -14,7 +14,9 @@ jobs:
     name: Bash Syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check install.sh syntax
         run: bash -n install.sh
@@ -41,7 +43,9 @@ jobs:
     name: Dry-run (Linux compat check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Patch script for Linux dry-run
         # The script exits on non-Darwin; stub out the OS check so we can
