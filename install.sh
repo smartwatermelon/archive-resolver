@@ -274,6 +274,8 @@ do_update_mirrors() {
 
   # Read current list for comparison
   if [[ -f "$LOCAL_MIRRORS_FILE" ]]; then
+    # parse_mirrors_file always exits 0 (its pipeline ends in `|| true`). The `|| true` below satisfies SC2312 and changes
+    # nothing: process substitution never propagates status under `set -e`.
     mapfile -t current_domains < <(parse_mirrors_file "$LOCAL_MIRRORS_FILE" || true)
   else
     current_domains=()
@@ -517,6 +519,8 @@ apply_removals() {
 do_uninstall() {
   info "Uninstalling ${SCRIPT_NAME}..."
   local -a managed
+  # read_manifest always exits 0 (its grep ends in `|| true`). The `|| true` below satisfies SC2312 and changes
+  # nothing: process substitution never propagates status under `set -e`.
   mapfile -t managed < <(read_manifest || true)
 
   if [[ ${#managed[@]} -eq 0 ]]; then
@@ -588,6 +592,9 @@ main() {
 
   check_resolver_dir
 
+  # get_desired_mirrors either prints or calls fatal; it never returns
+  # nonzero. The `|| true` below satisfies SC2312 and changes
+  # nothing: process substitution never propagates status under `set -e`.
   mapfile -t DESIRED_DOMAINS < <(get_desired_mirrors || true)
 
   if [[ ${#DESIRED_DOMAINS[@]} -eq 0 ]]; then
@@ -600,6 +607,8 @@ main() {
   info "Mirrors total  : ${#DESIRED_DOMAINS[@]}"
   echo >&2
 
+  # read_manifest always exits 0 (its grep ends in `|| true`). The `|| true` below satisfies SC2312 and changes
+  # nothing: process substitution never propagates status under `set -e`.
   mapfile -t MANIFEST_DOMAINS < <(read_manifest || true)
 
   local install_changes removal_changes total_changes
