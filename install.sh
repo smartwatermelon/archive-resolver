@@ -172,7 +172,7 @@ parse_args() {
 # Prerequisite checks
 # ---------------------------------------------------------------------------
 check_os() {
-  [[ "$(uname -s)" == "Darwin" ]] || fatal "This script only supports macOS."
+  [[ "$(uname -s || true)" == "Darwin" ]] || fatal "This script only supports macOS."
 }
 
 check_root() {
@@ -274,7 +274,9 @@ do_update_mirrors() {
 
   # Read current list for comparison
   if [[ -f "$LOCAL_MIRRORS_FILE" ]]; then
-    mapfile -t current_domains < <(parse_mirrors_file "$LOCAL_MIRRORS_FILE")
+    # parse_mirrors_file always exits 0 (its pipeline ends in `|| true`). The `|| true` below satisfies SC2312 and changes
+    # nothing: process substitution never propagates status under `set -e`.
+    mapfile -t current_domains < <(parse_mirrors_file "$LOCAL_MIRRORS_FILE" || true)
   else
     current_domains=()
   fi
@@ -320,7 +322,7 @@ do_update_mirrors() {
     echo "# The first non-comment line is the primary domain (others become symlinks)."
     echo "#"
     echo "# Source: https://en.wikipedia.org/wiki/Archive.today"
-    echo "# Updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "# Updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ' || true)"
     printf '%s\n' "${new_domains[@]}"
   } >"$LOCAL_MIRRORS_FILE"
 
@@ -390,7 +392,7 @@ write_manifest() {
   fi
   {
     echo "# ${MANAGED_MARKER}"
-    echo "# Updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "# Updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ' || true)"
     printf '%s\n' "${domains[@]}"
   } >"$MANIFEST_FILE"
 }
@@ -410,7 +412,7 @@ is_managed() {
 
 is_correct_symlink() {
   local link="$1" target="$2"
-  [[ -L "$link" ]] && [[ "$(readlink "$link")" == "$target" ]]
+  [[ -L "$link" ]] && [[ "$(readlink "$link" || true)" == "$target" ]]
 }
 
 primary_is_current() {
@@ -517,7 +519,9 @@ apply_removals() {
 do_uninstall() {
   info "Uninstalling ${SCRIPT_NAME}..."
   local -a managed
-  mapfile -t managed < <(read_manifest)
+  # read_manifest always exits 0 (its grep ends in `|| true`). The `|| true` below satisfies SC2312 and changes
+  # nothing: process substitution never propagates status under `set -e`.
+  mapfile -t managed < <(read_manifest || true)
 
   if [[ ${#managed[@]} -eq 0 ]]; then
     warn "No managed resolver files found (manifest missing or empty)."
@@ -588,7 +592,10 @@ main() {
 
   check_resolver_dir
 
-  mapfile -t DESIRED_DOMAINS < <(get_desired_mirrors)
+  # get_desired_mirrors either prints or calls fatal; it never returns
+  # nonzero. The `|| true` below satisfies SC2312 and changes
+  # nothing: process substitution never propagates status under `set -e`.
+  mapfile -t DESIRED_DOMAINS < <(get_desired_mirrors || true)
 
   if [[ ${#DESIRED_DOMAINS[@]} -eq 0 ]]; then
     fatal "Mirror list is empty. Cannot continue."
@@ -600,7 +607,9 @@ main() {
   info "Mirrors total  : ${#DESIRED_DOMAINS[@]}"
   echo >&2
 
-  mapfile -t MANIFEST_DOMAINS < <(read_manifest)
+  # read_manifest always exits 0 (its grep ends in `|| true`). The `|| true` below satisfies SC2312 and changes
+  # nothing: process substitution never propagates status under `set -e`.
+  mapfile -t MANIFEST_DOMAINS < <(read_manifest || true)
 
   local install_changes removal_changes total_changes
   install_changes="$(apply_install "${DESIRED_DOMAINS[@]}")"
