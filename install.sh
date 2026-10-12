@@ -378,10 +378,15 @@ get_desired_mirrors() {
 # ---------------------------------------------------------------------------
 # Manifest: tracks which domains this script manages
 # ---------------------------------------------------------------------------
+# Missing or empty manifest prints nothing; grep exit 2 is fatal. Capture it as var="$(read_manifest)" || exit 1.
 read_manifest() {
-  if [[ -f "$MANIFEST_FILE" ]]; then
-    grep -E '^[^#[:space:]]' "$MANIFEST_FILE" || true
+  [[ -f "$MANIFEST_FILE" ]] || return 0
+  local status=0
+  grep -E '^[^#[:space:]]' "$MANIFEST_FILE" || status=$?
+  if ((status > 1)); then
+    fatal "Cannot read manifest: ${MANIFEST_FILE} (grep exit ${status})"
   fi
+  return 0
 }
 
 write_manifest() {
@@ -518,10 +523,12 @@ apply_removals() {
 # ---------------------------------------------------------------------------
 do_uninstall() {
   info "Uninstalling ${SCRIPT_NAME}..."
-  local -a managed
-  # read_manifest always exits 0 (its grep ends in `|| true`). The `|| true` below satisfies SC2312 and changes
-  # nothing: process substitution never propagates status under `set -e`.
-  mapfile -t managed < <(read_manifest || true)
+  local -a managed=()
+  local manifest_text
+  manifest_text="$(read_manifest)" || exit 1
+  if [[ -n $manifest_text ]]; then
+    mapfile -t managed <<<"$manifest_text"
+  fi
 
   if [[ ${#managed[@]} -eq 0 ]]; then
     warn "No managed resolver files found (manifest missing or empty)."
@@ -607,9 +614,12 @@ main() {
   info "Mirrors total  : ${#DESIRED_DOMAINS[@]}"
   echo >&2
 
-  # read_manifest always exits 0 (its grep ends in `|| true`). The `|| true` below satisfies SC2312 and changes
-  # nothing: process substitution never propagates status under `set -e`.
-  mapfile -t MANIFEST_DOMAINS < <(read_manifest || true)
+  local manifest_text
+  manifest_text="$(read_manifest)" || exit 1
+  MANIFEST_DOMAINS=()
+  if [[ -n $manifest_text ]]; then
+    mapfile -t MANIFEST_DOMAINS <<<"$manifest_text"
+  fi
 
   local install_changes removal_changes total_changes
   install_changes="$(apply_install "${DESIRED_DOMAINS[@]}")"
